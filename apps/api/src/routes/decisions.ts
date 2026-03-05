@@ -10,6 +10,7 @@ import { hashDecision } from '@trustledger/shared';
 import { signWithKMS } from '../services/kmsService';
 import { verifyDecision } from '../services/verificationService';
 import { triggerRiskMonitorWorkflow } from '../services/creService';
+import { broadcastEvent } from './events';
 
 const router = Router();
 const log = pino({ name: 'decisions-route' });
@@ -109,6 +110,7 @@ router.post('/', tenantGuard, async (req, res) => {
       eventType: 'DECISION_SUBMITTED',
       payload: { decisionId, inputHash },
     });
+    broadcastEvent(tenantId, 'DECISION_SUBMITTED', { decisionId, inputHash });
 
     // 2. Sign with KMS (or local dev key)
     let signature: string;
@@ -125,6 +127,7 @@ router.post('/', tenantGuard, async (req, res) => {
         eventType: 'DECISION_SIGNED',
         payload: { decisionId },
       });
+      broadcastEvent(tenantId, 'DECISION_SIGNED', { decisionId });
     } catch (err) {
       log.error({ err, decisionId }, 'KMS signing failed');
       await db
@@ -138,6 +141,7 @@ router.post('/', tenantGuard, async (req, res) => {
         eventType: 'DECISION_FAILED',
         payload: { decisionId, reason: 'KMS signing failed' },
       });
+      broadcastEvent(tenantId, 'DECISION_FAILED', { decisionId, reason: 'KMS signing failed' });
 
       res.status(500).json({
         success: false,
@@ -276,6 +280,7 @@ router.get('/:id/verify', tenantGuard, async (req, res) => {
         eventType: 'DECISION_VERIFIED',
         payload: { decisionId: id, overall: result.overall },
       });
+      broadcastEvent(tenantId, 'DECISION_VERIFIED', { decisionId: id, overall: result.overall });
     }
 
     res.json({ success: true, data: result });

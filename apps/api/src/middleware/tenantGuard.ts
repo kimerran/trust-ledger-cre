@@ -22,16 +22,18 @@ declare global {
 }
 
 export function tenantGuard(req: Request, res: Response, next: NextFunction): void {
+  // Support both Authorization header and ?token= query param (needed for EventSource/SSE)
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
+  const queryToken = req.query.token as string | undefined;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
+
+  if (!token) {
     res.status(401).json({
       success: false,
       error: { code: 'UNAUTHORIZED', message: 'Missing or invalid Authorization header' },
     });
     return;
   }
-
-  const token = authHeader.slice(7);
   const secret = process.env.NEXTAUTH_SECRET;
 
   if (!secret) {

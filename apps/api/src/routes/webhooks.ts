@@ -6,6 +6,7 @@ import { db } from '../../db/index';
 import { decisions, auditEvents, workflowRuns } from '../../db/schema';
 import { internalAuthGuard } from '../middleware/authGuard';
 import { anchorDecisionOnChain } from '../services/anchorService';
+import { broadcastEvent } from './events';
 
 const router = Router();
 const log = pino({ name: 'webhooks-route' });
@@ -91,6 +92,7 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
         eventType: 'DECISION_FAILED',
         payload: { decisionId, reason: 'On-chain anchoring failed' },
       });
+      broadcastEvent(tenantId, 'DECISION_FAILED', { decisionId, reason: 'On-chain anchoring failed' });
 
       res.status(500).json({
         success: false,
@@ -120,6 +122,7 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
       eventType: 'DECISION_ANCHORED',
       payload: { decisionId, txHash, blockNumber, anchoredAt },
     });
+    broadcastEvent(tenantId, 'DECISION_ANCHORED', { decisionId, txHash, blockNumber });
 
     // Update workflow run
     await db
