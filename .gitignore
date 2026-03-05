@@ -11,6 +11,7 @@ dist/
 out/
 cache/
 tsconfig.tsbuildinfo
+.cre_build_tmp.js
 
 # ── Foundry (root-level duplicates from contracts/) ──
 foundry.lock

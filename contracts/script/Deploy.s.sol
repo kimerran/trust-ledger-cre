@@ -7,7 +7,7 @@ import {RetentionPolicy} from "../src/RetentionPolicy.sol";
 
 contract Deploy is Script {
     function run() external {
-        uint256 deployerPrivateKey = REDACTED_DEPLOYER_KEY;
+        uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
         address deployer = vm.addr(deployerPrivateKey);
 
         console.log("Deployer:", deployer);

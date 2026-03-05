@@ -34,6 +34,8 @@ type DecisionInput = {
     confidence: number;
     topFeatures: TopFeature[];
   };
+  // Optional secrets passed in payload for simulation (CRE WASM doesn't support getSecret in sim)
+  secrets?: Record<string, string>;
 };
 
 type RiskAssessment = {
@@ -71,18 +73,23 @@ function toBase64(str: string): string {
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
-/** Safely retrieve a secret; returns fallback if not configured (simulation). */
+/** Safely retrieve a secret; falls back to payload secrets, then to fallback string. */
 function getSecretSafe(
   runtime: Runtime<WorkflowConfig>,
   name: string,
+  payloadSecrets?: Record<string, string>,
   fallback = ""
 ): string {
+  // 1. Try CRE secret store (works in deployed mode)
   try {
     const val = runtime.getSecret({ id: name }).result().value;
-    return val || fallback;
+    if (val) return val;
   } catch {
-    return fallback;
+    // Not available in simulation
   }
+  // 2. Try payload-provided secrets (for simulation)
+  if (payloadSecrets?.[name]) return payloadSecrets[name];
+  return fallback;
 }
 
 // ─── RFC 8785 canonical JSON ───────────────────────────────────────────────
@@ -142,9 +149,10 @@ export function onHttpTrigger(
   // ─── Step 2: sign with AWS KMS ────────────────────────────────────────
   runtime.log("[2/4] Signing with AWS KMS...");
 
-  const kmsKeyArn = getSecretSafe(runtime, "KMS_KEY_ARN");
-  const awsKeyId  = getSecretSafe(runtime, "AWS_ACCESS_KEY_ID");
-  const awsSecret = getSecretSafe(runtime, "AWS_SECRET_ACCESS_KEY");
+  const secrets = input.secrets;
+  const kmsKeyArn = getSecretSafe(runtime, "KMS_KEY_ARN", secrets);
+  const awsKeyId  = getSecretSafe(runtime, "AWS_ACCESS_KEY_ID", secrets);
+  const awsSecret = getSecretSafe(runtime, "AWS_SECRET_ACCESS_KEY", secrets);
 
   const isSimulation = !kmsKeyArn || !awsKeyId || !awsSecret;
   if (isSimulation) {
@@ -197,7 +205,7 @@ export function onHttpTrigger(
   // ─── Step 3: risk assessment via Claude Haiku ─────────────────────────
   runtime.log("[3/4] Assessing risk with Claude Haiku...");
 
-  const anthropicKey = "REDACTED_ANTHROPIC_KEY" // getSecretSafe(runtime, "ANTHROPIC_API_KEY");
+  const anthropicKey = getSecretSafe(runtime, "ANTHROPIC_API_KEY", secrets);
   const hasAnthropicKey = anthropicKey.length > 0;
 
   let riskAssessment: RiskAssessment = {
@@ -273,7 +281,7 @@ export function onHttpTrigger(
   // ─── Step 4: callback to backend ─────────────────────────────────────
   runtime.log("[4/4] Sending callback to backend...");
 
-  const internalKey = "REDACTED_INTERNAL_API_KEY" // getSecretSafe(runtime, "INTERNAL_API_KEY", "dev-internal");
+  const internalKey = getSecretSafe(runtime, "INTERNAL_API_KEY", secrets, "dev-internal");
 
   const callbackPayload: CallbackPayload = {
     decisionId: input.decisionId,

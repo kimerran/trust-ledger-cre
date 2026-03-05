@@ -1,6 +1,6 @@
 {
   "auditAnchorContract": "0x2469DaAF10a39ab00a4A8534CA99C6783b29d9b7",
-  "callbackBaseUrl": "https://REDACTED_NGROK_URL",
+  "callbackBaseUrl": "http://localhost:3001",
   "kmsEndpoint": "https://kms.us-east-1.amazonaws.com",
   "claudeModel": "claude-haiku-4-5",
   "chainSelectorName": "ethereum-testnet-sepolia"
