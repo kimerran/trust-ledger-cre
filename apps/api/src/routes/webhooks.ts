@@ -5,6 +5,7 @@ import pino from 'pino';
 import { db } from '../../db/index';
 import { decisions, auditEvents, workflowRuns } from '../../db/schema';
 import { internalAuthGuard } from '../middleware/authGuard';
+import { anchorDecisionOnChain } from '../services/anchorService';
 
 const router = Router();
 const log = pino({ name: 'webhooks-route' });
@@ -18,8 +19,6 @@ const creWebhookSchema = z.object({
     riskLevel: z.enum(['LOW', 'MEDIUM', 'HIGH']),
     summary: z.string(),
   }),
-  txHash: z.string(),
-  blockNumber: z.number().int().positive(),
   anchoredAt: z.string(),
 });
 
@@ -36,7 +35,7 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
     return;
   }
 
-  const { decisionId, workflowRunId, riskAssessment, txHash, blockNumber, anchoredAt } =
+  const { decisionId, workflowRunId, hash, signature, riskAssessment, anchoredAt } =
     parsed.data;
 
   try {
@@ -58,10 +57,53 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
 
     const tenantId = decision.tenantId;
 
+    // Anchor the decision on-chain (Sepolia)
+    const riskJson = JSON.stringify(riskAssessment);
+    let txHash: string;
+    let blockNumber: number;
+
+    try {
+      const anchorResult = await anchorDecisionOnChain({
+        decisionId,
+        inputHash: hash,
+        signature,
+        riskJson,
+      });
+      txHash = anchorResult.txHash;
+      blockNumber = anchorResult.blockNumber;
+    } catch (anchorErr) {
+      log.error({ err: anchorErr, decisionId }, 'On-chain anchoring failed');
+
+      await db
+        .update(decisions)
+        .set({
+          riskLevel: riskAssessment.riskLevel,
+          riskSummary: riskAssessment.summary,
+          status: 'FAILED',
+          errorMessage: 'On-chain anchoring failed',
+          updatedAt: new Date(),
+        })
+        .where(eq(decisions.id, decisionId));
+
+      await db.insert(auditEvents).values({
+        tenantId,
+        decisionId,
+        eventType: 'DECISION_FAILED',
+        payload: { decisionId, reason: 'On-chain anchoring failed' },
+      });
+
+      res.status(500).json({
+        success: false,
+        error: { code: 'ANCHOR_FAILED', message: 'On-chain anchoring failed' },
+      });
+      return;
+    }
+
     // Update decision to ANCHORED
     await db
       .update(decisions)
       .set({
+        signature,
         riskLevel: riskAssessment.riskLevel,
         riskSummary: riskAssessment.summary,
         txHash,
@@ -102,7 +144,7 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
       'Decision anchored via CRE callback',
     );
 
-    res.json({ success: true, data: { decisionId, status: 'ANCHORED' } });
+    res.json({ success: true, data: { decisionId, status: 'ANCHORED', txHash, blockNumber } });
   } catch (err) {
     log.error({ err, decisionId }, 'CRE webhook processing failed');
     res.status(500).json({

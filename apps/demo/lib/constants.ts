@@ -23,7 +23,6 @@ export const PRE_POPULATED_DECISION = {
 export const STEP_TITLES = [
   'Welcome',
   'Submit Decision',
-  'On-Chain Anchor',
   'Verify',
   'Proof & Summary',
 ] as const;

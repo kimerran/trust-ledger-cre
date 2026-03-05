@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import type { Decision } from '@trustledger/shared';
 import { Badge } from './ui/badge';
@@ -29,55 +32,69 @@ function RiskBadge({ level }: { level: Decision['riskLevel'] }) {
 }
 
 export function AuditTable({ decisions }: AuditTableProps) {
-  if (decisions.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-32 text-muted-foreground">
-        No decisions found.
-      </div>
-    );
-  }
+  const [filter, setFilter] = useState('');
+
+  const filtered = filter
+    ? decisions.filter((d) => d.id.toLowerCase().includes(filter.toLowerCase()))
+    : decisions;
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Decision ID</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Outcome</TableHead>
-          <TableHead>Confidence</TableHead>
-          <TableHead>Risk</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Created</TableHead>
-          <TableHead>Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {decisions.map((d) => (
-          <TableRow key={d.id}>
-            <TableCell className="font-mono text-xs">{d.id.slice(0, 13)}…</TableCell>
-            <TableCell>{d.decisionType}</TableCell>
-            <TableCell>{d.outcome}</TableCell>
-            <TableCell>{(parseFloat(String(d.confidence)) * 100).toFixed(1)}%</TableCell>
-            <TableCell>
-              <RiskBadge level={d.riskLevel} />
-            </TableCell>
-            <TableCell>
-              <StatusBadge status={d.status} />
-            </TableCell>
-            <TableCell className="text-muted-foreground text-xs">
-              {new Date(d.createdAt).toLocaleString()}
-            </TableCell>
-            <TableCell>
-              <Link
-                href={`/audit/${d.id}`}
-                className="text-primary underline underline-offset-4 text-sm"
-              >
-                View
-              </Link>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+    <div className="space-y-4">
+      <input
+        type="text"
+        placeholder="Filter by Decision ID..."
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        className="w-full max-w-sm px-3 py-2 rounded-md border bg-background text-sm font-mono placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
+      />
+
+      {filtered.length === 0 ? (
+        <div className="flex items-center justify-center h-32 text-muted-foreground">
+          {filter ? 'No decisions match that ID.' : 'No decisions found.'}
+        </div>
+      ) : (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Decision ID</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Outcome</TableHead>
+              <TableHead>Confidence</TableHead>
+              <TableHead>Risk</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
+              <TableHead>Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {filtered.map((d) => (
+              <TableRow key={d.id}>
+                <TableCell className="font-mono text-xs">{d.id}</TableCell>
+                <TableCell>{d.decisionType}</TableCell>
+                <TableCell>{d.outcome}</TableCell>
+                <TableCell>{(parseFloat(String(d.confidence)) * 100).toFixed(1)}%</TableCell>
+                <TableCell>
+                  <RiskBadge level={d.riskLevel} />
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={d.status} />
+                </TableCell>
+                <TableCell className="text-muted-foreground text-xs">
+                  {new Date(d.createdAt).toLocaleString()}
+                </TableCell>
+                <TableCell>
+                  <Link
+                    href={`/audit/${d.id}`}
+                    className="text-primary underline underline-offset-4 text-sm"
+                  >
+                    View
+                  </Link>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+    </div>
   );
 }

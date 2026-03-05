@@ -4,7 +4,6 @@ import { useState, useCallback } from 'react';
 import { StepIndicator } from '@/components/StepIndicator';
 import { StepWelcome } from '@/components/steps/StepWelcome';
 import { StepSubmit } from '@/components/steps/StepSubmit';
-import { StepAnchor } from '@/components/steps/StepAnchor';
 import { StepVerify } from '@/components/steps/StepVerify';
 import { StepProof } from '@/components/steps/StepProof';
 import { PRE_POPULATED_DECISION } from '@/lib/constants';
@@ -14,10 +13,9 @@ interface WizardState {
   currentStep: number;
   token: string | null;
   decision: Decision | null;
-  anchoredDecision: Decision | null;
-  simulatedPayload: Record<string, unknown> | null;
   verification: VerificationResult | null;
   proof: Record<string, unknown> | null;
+  editedPayload: string;
   isLoading: boolean;
   error: string | null;
 }
@@ -26,10 +24,9 @@ const initialState: WizardState = {
   currentStep: 0,
   token: null,
   decision: null,
-  anchoredDecision: null,
-  simulatedPayload: null,
   verification: null,
   proof: null,
+  editedPayload: JSON.stringify(PRE_POPULATED_DECISION, null, 2),
   isLoading: false,
   error: null,
 };
@@ -58,13 +55,14 @@ export function Wizard() {
     if (!state.token) return;
     setLoading(true);
     try {
+      const payload = JSON.parse(state.editedPayload);
       const res = await fetch('/api/decisions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${state.token}`,
         },
-        body: JSON.stringify(PRE_POPULATED_DECISION),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.error?.message ?? 'Submit failed');
@@ -72,46 +70,11 @@ export function Wizard() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Submit failed');
     }
-  }, [state.token]);
+  }, [state.token, state.editedPayload]);
 
-  // Step 2: Simulate CRE anchor
-  const handleAnchor = useCallback(async () => {
-    if (!state.decision) return;
-    setLoading(true);
-    try {
-      const res = await fetch('/api/simulate-anchor', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          decisionId: state.decision.id,
-          inputHash: state.decision.inputHash,
-          signature: state.decision.signature,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.error?.message ?? 'Anchor failed');
-
-      // Re-fetch the decision to get updated status
-      const fetchRes = await fetch(`/api/decisions/${state.decision.id}`, {
-        headers: { Authorization: `Bearer ${state.token}` },
-      });
-      const fetchData = await fetchRes.json();
-      if (!fetchRes.ok || !fetchData.success) throw new Error('Failed to fetch updated decision');
-
-      setState((s) => ({
-        ...s,
-        anchoredDecision: fetchData.data,
-        simulatedPayload: data.simulatedPayload ?? null,
-        isLoading: false,
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Anchor failed');
-    }
-  }, [state.decision, state.token]);
-
-  // Step 3: Verify
+  // Step 2: Verify
   const handleVerify = useCallback(async () => {
-    const id = state.anchoredDecision?.id ?? state.decision?.id;
+    const id = state.decision?.id;
     if (!id) return;
     setLoading(true);
     try {
@@ -124,11 +87,11 @@ export function Wizard() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verify failed');
     }
-  }, [state.anchoredDecision, state.decision, state.token]);
+  }, [state.decision, state.token]);
 
-  // Step 4: Fetch proof
+  // Step 3: Fetch proof
   const handleFetchProof = useCallback(async () => {
-    const id = state.anchoredDecision?.id ?? state.decision?.id;
+    const id = state.decision?.id;
     if (!id) return;
     setLoading(true);
     try {
@@ -141,12 +104,12 @@ export function Wizard() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Proof fetch failed');
     }
-  }, [state.anchoredDecision, state.decision, state.token]);
+  }, [state.decision, state.token]);
 
   const nextStep = () => setState((s) => ({ ...s, currentStep: s.currentStep + 1 }));
   const startOver = () => setState(initialState);
 
-  const decisionId = state.anchoredDecision?.id ?? state.decision?.id ?? '';
+  const decisionId = state.decision?.id ?? '';
 
   return (
     <div className="space-y-6">
@@ -166,24 +129,15 @@ export function Wizard() {
         <StepSubmit
           token={state.token!}
           decision={state.decision}
+          editedJson={state.editedPayload}
+          onEditJson={(json) => setState((s) => ({ ...s, editedPayload: json }))}
           onSubmit={handleSubmit}
           onNext={nextStep}
           isLoading={state.isLoading}
         />
       )}
 
-      {state.currentStep === 2 && state.decision && (
-        <StepAnchor
-          decision={state.decision}
-          anchoredDecision={state.anchoredDecision}
-          simulatedPayload={state.simulatedPayload}
-          onAnchor={handleAnchor}
-          onNext={nextStep}
-          isLoading={state.isLoading}
-        />
-      )}
-
-      {state.currentStep === 3 && (
+      {state.currentStep === 2 && (
         <StepVerify
           decisionId={decisionId}
           verification={state.verification}
@@ -193,7 +147,7 @@ export function Wizard() {
         />
       )}
 
-      {state.currentStep === 4 && (
+      {state.currentStep === 3 && (
         <StepProof
           decisionId={decisionId}
           proof={state.proof}

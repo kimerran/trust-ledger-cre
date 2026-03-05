@@ -22,10 +22,9 @@ export async function generateMetadata({
 export default async function PublicVerifyPage({ params }: { params: { id: string } }) {
   const apiBase = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-  // This is a public endpoint that doesn't require auth
-  const res = await fetch(`${apiBase}/decisions/${params.id}/verify`, {
-    headers: { Authorization: `Bearer public` },
-    next: { revalidate: 60 },
+  // Public endpoint — no auth required
+  const res = await fetch(`${apiBase}/decisions/public/${params.id}/verify`, {
+    cache: 'no-store',
   });
 
   if (res.status === 404) notFound();

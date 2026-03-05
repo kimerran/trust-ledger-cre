@@ -83,7 +83,8 @@ async function verifyOnchainLayer(decision: DecisionRecord): Promise<OnchainAnch
   }
 
   try {
-    const url = new URL('https://api-sepolia.etherscan.io/api');
+    const url = new URL('https://api.etherscan.io/v2/api');
+    url.searchParams.set('chainid', '11155111');
     url.searchParams.set('module', 'transaction');
     url.searchParams.set('action', 'gettxreceiptstatus');
     url.searchParams.set('txhash', decision.txHash);

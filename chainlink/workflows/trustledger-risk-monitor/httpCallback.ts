@@ -24,6 +24,7 @@ type TopFeature = {
 
 type DecisionInput = {
   decisionId: string;
+  signature: string;
   modelId: string;
   inputHash: string;  // pre-computed sha256: hex by the backend
   callbackUrl: string;
@@ -49,6 +50,25 @@ type CallbackPayload = {
   anchoredAt: string;
 };
 
+// ─── Base64 encoding (no btoa in CRE WASM runtime) ───────────────────────
+
+const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function toBase64(str: string): string {
+  const bytes = Array.from(str).map((c) => c.charCodeAt(0));
+  let out = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
+    out += B64[(b0 >> 2) & 0x3f];
+    out += B64[((b0 << 4) | (b1 >> 4)) & 0x3f];
+    out += i + 1 < bytes.length ? B64[((b1 << 2) | (b2 >> 6)) & 0x3f] : "=";
+    out += i + 2 < bytes.length ? B64[b2 & 0x3f] : "=";
+  }
+  return out;
+}
+
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
 /** Safely retrieve a secret; returns fallback if not configured (simulation). */
@@ -58,7 +78,7 @@ function getSecretSafe(
   fallback = ""
 ): string {
   try {
-    const val = runtime.getSecret({ name }).result().value;
+    const val = runtime.getSecret({ id: name }).result().value;
     return val || fallback;
   } catch {
     return fallback;
@@ -131,12 +151,12 @@ export function onHttpTrigger(
     runtime.log("[2/4] ⚠ KMS secrets not configured — running in simulation mode");
   }
 
-  let signature = "SIMULATION_SIGNATURE_PLACEHOLDER==";
+  let signature = input.signature;
 
   if (!isSimulation) {
     const kmsBody = JSON.stringify({
       KeyId: kmsKeyArn,
-      Message: btoa(hash),
+      Message: toBase64(hash),
       MessageType: "RAW",
       SigningAlgorithm: "ECDSA_SHA_256",
     });
@@ -154,7 +174,7 @@ export function onHttpTrigger(
               "X-Aws-Access-Key-Id": keyId,
               "X-Aws-Secret-Access-Key": secret,
             },
-            body: new TextEncoder().encode(body),
+            body: Buffer.from(body).toString("base64"),
           })
           .result();
 
@@ -177,7 +197,7 @@ export function onHttpTrigger(
   // ─── Step 3: risk assessment via Claude Haiku ─────────────────────────
   runtime.log("[3/4] Assessing risk with Claude Haiku...");
 
-  const anthropicKey = "REDACTED_ANTHROPIC_KEY" //;getSecretSafe(runtime, "ANTHROPIC_API_KEY");
+  const anthropicKey = "REDACTED_ANTHROPIC_KEY" // getSecretSafe(runtime, "ANTHROPIC_API_KEY");
   const hasAnthropicKey = anthropicKey.length > 0;
 
   let riskAssessment: RiskAssessment = {
@@ -219,11 +239,10 @@ export function onHttpTrigger(
               "x-api-key": apiKey,
               "anthropic-version": "2023-06-01",
             },
-            body: new TextEncoder().encode(body),
+          body: Buffer.from(body).toString("base64"),
           })
           .result();
 
-        console.log('response', response.statusCode);
         if (!ok(response)) {
           runtime.log(`[WARN] Claude API failed (${response.statusCode})`);
           return JSON.stringify({
@@ -235,8 +254,6 @@ export function onHttpTrigger(
         const parsed = json(response) as {
           content: Array<{ type: string; text: string }>;
         };
-                console.log('response', parsed.content[0].text);
-
         return parsed.content?.[0]?.text ?? "{}";
       },
       { aggregation: "MODE" }
@@ -256,7 +273,7 @@ export function onHttpTrigger(
   // ─── Step 4: callback to backend ─────────────────────────────────────
   runtime.log("[4/4] Sending callback to backend...");
 
-  const internalKey = getSecretSafe(runtime, "INTERNAL_API_KEY", "dev-internal");
+  const internalKey = "REDACTED_INTERNAL_API_KEY" // getSecretSafe(runtime, "INTERNAL_API_KEY", "dev-internal");
 
   const callbackPayload: CallbackPayload = {
     decisionId: input.decisionId,
@@ -281,7 +298,7 @@ export function onHttpTrigger(
             "Content-Type": "application/json",
             "X-Api-Key": apiKey,
           },
-          body: new TextEncoder().encode(body),
+          body: Buffer.from(body).toString("base64"),
         })
         .result();
 

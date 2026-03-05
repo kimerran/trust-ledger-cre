@@ -1,8 +1,8 @@
-// File: /home/markhughneri-piertwo/work/trust-ledger-chainlink/apps/demo/app/api/decisions/[id]/route.ts
-import * as entry from '../../../../../../app/api/decisions/[id]/route.js'
+// File: /home/markhughneri-piertwo/work/trust-ledger-chainlink/apps/demo/app/api/decisions/[id]/proof/route.ts
+import * as entry from '../../../../../../../app/api/decisions/[id]/proof/route.js'
 import type { NextRequest } from 'next/server.js'
 
-type TEntry = typeof import('../../../../../../app/api/decisions/[id]/route.js')
+type TEntry = typeof import('../../../../../../../app/api/decisions/[id]/proof/route.js')
 
 // Check that the entry is a valid entry
 checkFields<Diff<{

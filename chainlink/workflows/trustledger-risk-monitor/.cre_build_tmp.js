@@ -4403,7 +4403,7 @@ function write(buffer, value, offset, isLE, mLen, nBytes) {
 var customInspectSymbol = typeof Symbol === "function" && typeof Symbol.for === "function" ? Symbol.for("nodejs.util.inspect.custom") : null;
 var INSPECT_MAX_BYTES = 50;
 var kMaxLength = 2147483647;
-var btoa2 = globalThis.btoa;
+var btoa = globalThis.btoa;
 var atob2 = globalThis.atob;
 var File = globalThis.File;
 var Blob = globalThis.Blob;
@@ -14194,9 +14194,24 @@ var sendErrorResponse = (error) => {
   }
   hostBindings.sendResponse(payload);
 };
+var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+function toBase64(str) {
+  const bytes = Array.from(str).map((c) => c.charCodeAt(0));
+  let out = "";
+  for (let i2 = 0;i2 < bytes.length; i2 += 3) {
+    const b0 = bytes[i2];
+    const b1 = i2 + 1 < bytes.length ? bytes[i2 + 1] : 0;
+    const b2 = i2 + 2 < bytes.length ? bytes[i2 + 2] : 0;
+    out += B64[b0 >> 2 & 63];
+    out += B64[(b0 << 4 | b1 >> 4) & 63];
+    out += i2 + 1 < bytes.length ? B64[(b1 << 2 | b2 >> 6) & 63] : "=";
+    out += i2 + 2 < bytes.length ? B64[b2 & 63] : "=";
+  }
+  return out;
+}
 function getSecretSafe(runtime2, name, fallback = "") {
   try {
-    const val = runtime2.getSecret({ name }).result().value;
+    const val = runtime2.getSecret({ id: name }).result().value;
     return val || fallback;
   } catch {
     return fallback;
@@ -14242,11 +14257,11 @@ function onHttpTrigger(runtime2, payload) {
   if (isSimulation) {
     runtime2.log("[2/4] ⚠ KMS secrets not configured — running in simulation mode");
   }
-  let signature = "SIMULATION_SIGNATURE_PLACEHOLDER==";
+  let signature = input.signature;
   if (!isSimulation) {
     const kmsBody = JSON.stringify({
       KeyId: kmsKeyArn,
-      Message: btoa(hash),
+      Message: toBase64(hash),
       MessageType: "RAW",
       SigningAlgorithm: "ECDSA_SHA_256"
     });
@@ -14261,7 +14276,7 @@ function onHttpTrigger(runtime2, payload) {
           "X-Aws-Access-Key-Id": keyId,
           "X-Aws-Secret-Access-Key": secret
         },
-        body: new TextEncoder().encode(body)
+        body: Buffer.from(body).toString("base64")
       }).result();
       if (!ok(response)) {
         runtime2.log(`[WARN] KMS sign failed (${response.statusCode})`);
@@ -14311,9 +14326,8 @@ function onHttpTrigger(runtime2, payload) {
           "x-api-key": apiKey,
           "anthropic-version": "2023-06-01"
         },
-        body: new TextEncoder().encode(body)
+        body: Buffer.from(body).toString("base64")
       }).result();
-      console.log("response", response.statusCode);
       if (!ok(response)) {
         runtime2.log(`[WARN] Claude API failed (${response.statusCode})`);
         return JSON.stringify({
@@ -14322,7 +14336,6 @@ function onHttpTrigger(runtime2, payload) {
         });
       }
       const parsed = json(response);
-      console.log("response", parsed.content[0].text);
       return parsed.content?.[0]?.text ?? "{}";
     }, { aggregation: "MODE" })(claudeBody, anthropicKey).result();
     try {
@@ -14335,7 +14348,7 @@ function onHttpTrigger(runtime2, payload) {
   runtime2.log(`[3/4] Risk level: ${riskAssessment.riskLevel}`);
   runtime2.log(`[3/4] Summary: ${riskAssessment.summary}`);
   runtime2.log("[4/4] Sending callback to backend...");
-  const internalKey = getSecretSafe(runtime2, "INTERNAL_API_KEY", "dev-internal");
+  const internalKey = "REDACTED_INTERNAL_API_KEY";
   const callbackPayload = {
     decisionId: input.decisionId,
     workflowRunId: `cre-sim-${Date.now()}`,
@@ -14355,7 +14368,7 @@ function onHttpTrigger(runtime2, payload) {
         "Content-Type": "application/json",
         "X-Api-Key": apiKey
       },
-      body: new TextEncoder().encode(body)
+      body: Buffer.from(body).toString("base64")
     }).result();
     if (!ok(response)) {
       runtime2.log(`[WARN] Callback to ${url} failed (${response.statusCode})`);

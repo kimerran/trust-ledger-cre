@@ -1,26 +1,23 @@
 'use client';
 
-import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CodeBlock } from '@/components/CodeBlock';
 import { StatusBadge } from '@/components/StatusBadge';
 import { UnderTheHood } from '@/components/UnderTheHood';
-import { PRE_POPULATED_DECISION } from '@/lib/constants';
 import type { Decision } from '@trustledger/shared';
 
 interface StepSubmitProps {
   token: string;
   decision: Decision | null;
+  editedJson: string;
+  onEditJson: (json: string) => void;
   onSubmit: () => void;
   onNext: () => void;
   isLoading: boolean;
 }
 
-export function StepSubmit({ token, decision, onSubmit, onNext, isLoading }: StepSubmitProps) {
-  const [editedJson, setEditedJson] = useState(
-    JSON.stringify(PRE_POPULATED_DECISION, null, 2),
-  );
+export function StepSubmit({ token, decision, editedJson, onEditJson, onSubmit, onNext, isLoading }: StepSubmitProps) {
 
   return (
     <Card>
@@ -39,7 +36,7 @@ export function StepSubmit({ token, decision, onSubmit, onNext, isLoading }: Ste
               <textarea
                 className="w-full h-64 p-3 rounded-md border bg-muted/30 font-mono text-xs resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                 value={editedJson}
-                onChange={(e) => setEditedJson(e.target.value)}
+                onChange={(e) => onEditJson(e.target.value)}
               />
             </div>
             <Button onClick={onSubmit} disabled={isLoading}>

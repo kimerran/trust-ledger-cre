@@ -31,6 +31,37 @@ const submitDecisionSchema = z.object({
   metadata: z.record(z.unknown()).optional(),
 });
 
+// ─── GET /decisions/public/:id/verify (no auth) ──────────────────────────────
+
+router.get('/public/:id/verify', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const [decision] = await db
+      .select()
+      .from(decisions)
+      .where(eq(decisions.id, id))
+      .limit(1);
+
+    if (!decision) {
+      res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Decision not found' },
+      });
+      return;
+    }
+
+    const result = await verifyDecision(decision);
+    res.json({ success: true, data: result });
+  } catch (err) {
+    log.error({ err, id }, 'Public verification failed');
+    res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Verification failed' },
+    });
+  }
+});
+
 // ─── POST /decisions ──────────────────────────────────────────────────────────
 
 router.post('/', tenantGuard, async (req, res) => {
