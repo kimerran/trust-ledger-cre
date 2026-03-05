@@ -1,0 +1,18 @@
+# dependencies
+node_modules/
+
+# build
+dist/
+tsconfig.tsbuildinfo
+
+# env
+.env
+.env.local
+.env.*.local
+
+# debug
+npm-debug.log*
+pnpm-debug.log*
+
+# drizzle
+drizzle/meta/_journal.json.bak

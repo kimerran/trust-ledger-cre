@@ -1,0 +1,33 @@
+# ==========================================================================
+# CRE WORKFLOW SETTINGS — trustledger-risk-monitor
+# ==========================================================================
+# Workflow-specific settings for CRE CLI targets.
+# Run:  cre workflow simulate ./workflows/trustledger-risk-monitor --target dev-settings
+#       cre workflow deploy   ./workflows/trustledger-risk-monitor --target production-settings
+
+# ==========================================================================
+dev-settings:
+  user-workflow:
+    workflow-name: "trustledger-risk-monitor-dev"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.dev.json"
+    secrets-path: "../../secrets.dev.yaml"
+
+# ==========================================================================
+staging-settings:
+  user-workflow:
+    workflow-name: "trustledger-risk-monitor-staging"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.dev.json"
+    secrets-path: "../../secrets.dev.yaml"
+
+# ==========================================================================
+production-settings:
+  user-workflow:
+    workflow-name: "trustledger-risk-monitor"
+  workflow-artifacts:
+    workflow-path: "./main.ts"
+    config-path: "./config.production.json"
+    secrets-path: "../../secrets.yaml"

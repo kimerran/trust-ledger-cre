@@ -1,0 +1,28 @@
+# TrustLedger — Chainlink CRE Node Configuration
+# Reference: https://docs.chain.link/cre/cli
+
+node:
+  name: trustledger-cre-node
+  version: "1.0"
+
+# ── Chain connections ─────────────────────────────────────────────────────────
+chains:
+  - id: 11155111  # Ethereum Sepolia
+    name: sepolia
+    rpcUrl: "${secrets.ALCHEMY_RPC_URL}"
+    confirmations: 2
+
+# ── Workflow registry ─────────────────────────────────────────────────────────
+workflows:
+  - name: trustledger-risk-monitor
+    path: ./workflows/trustledger-risk-monitor.workflow.yaml
+    enabled: true
+
+  - name: trustledger-reserve-health
+    path: ./workflows/trustledger-reserve-health.workflow.yaml
+    enabled: true
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level: info
+  format: json

@@ -1,0 +1,14 @@
+# foundry build artifacts
+out/
+cache/
+foundry.lock
+
+# env
+.env
+.env.local
+
+# broadcast logs (deployment receipts with private data)
+broadcast/
+
+# docs autogen
+docs/

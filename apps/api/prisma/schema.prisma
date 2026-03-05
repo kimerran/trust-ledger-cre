@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model ai_models {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String      @db.Uuid
+  name        String
+  version     String
+  model_type  String
+  description String?
+  metadata    Json?
+  is_active   Boolean     @default(true)
+  created_at  DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime    @default(now()) @db.Timestamptz(6)
+  tenants     tenants     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "ai_models_tenant_id_tenants_id_fk")
+  decisions   decisions[]
+
+  @@index([tenant_id], map: "ai_models_tenant_idx")
+}
+
+model audit_events {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id   String           @db.Uuid
+  decision_id String?
+  event_type  audit_event_type
+  payload     Json?
+  created_at  DateTime         @default(now()) @db.Timestamptz(6)
+  decisions   decisions?       @relation(fields: [decision_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "audit_events_decision_id_decisions_id_fk")
+  tenants     tenants          @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "audit_events_tenant_id_tenants_id_fk")
+
+  @@index([created_at])
+  @@index([decision_id], map: "audit_events_decision_idx")
+  @@index([tenant_id], map: "audit_events_tenant_idx")
+}
+
+model decisions {
+  id            String          @id
+  tenant_id     String          @db.Uuid
+  model_id      String          @db.Uuid
+  decision_type String
+  outcome       String
+  confidence    Decimal         @db.Decimal(5, 4)
+  top_features  Json
+  input_hash    String
+  signature     String?
+  risk_level    risk_level?
+  risk_summary  String?
+  tx_hash       String?
+  block_number  Int?
+  status        decision_status @default(PENDING)
+  error_message String?
+  metadata      Json?
+  created_at    DateTime        @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime        @default(now()) @db.Timestamptz(6)
+  audit_events  audit_events[]
+  ai_models     ai_models       @relation(fields: [model_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "decisions_model_id_ai_models_id_fk")
+  tenants       tenants         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "decisions_tenant_id_tenants_id_fk")
+  workflow_runs workflow_runs[]
+
+  @@index([created_at])
+  @@index([status])
+  @@index([tenant_id], map: "decisions_tenant_idx")
+}
+
+model retention_policies {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id         String   @db.Uuid
+  decision_type     String?
+  retention_days    Int      @default(2555)
+  onchain_policy_id String?
+  created_at        DateTime @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime @default(now()) @db.Timestamptz(6)
+  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "retention_policies_tenant_id_tenants_id_fk")
+
+  @@index([tenant_id], map: "retention_policies_tenant_idx")
+}
+
+model tenants {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String
+  slug               String               @unique(map: "tenants_slug_unique")
+  is_active          Boolean              @default(true)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @db.Timestamptz(6)
+  ai_models          ai_models[]
+  audit_events       audit_events[]
+  decisions          decisions[]
+  retention_policies retention_policies[]
+  workflow_runs      workflow_runs[]
+}
+
+model workflow_runs {
+  id            String              @id
+  tenant_id     String              @db.Uuid
+  decision_id   String?
+  workflow_name String
+  status        workflow_run_status @default(RUNNING)
+  input         Json?
+  output        Json?
+  error_message String?
+  duration_ms   Int?
+  created_at    DateTime            @default(now()) @db.Timestamptz(6)
+  completed_at  DateTime?           @db.Timestamptz(6)
+  decisions     decisions?          @relation(fields: [decision_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "workflow_runs_decision_id_decisions_id_fk")
+  tenants       tenants             @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "workflow_runs_tenant_id_tenants_id_fk")
+
+  @@index([decision_id], map: "workflow_runs_decision_idx")
+  @@index([tenant_id], map: "workflow_runs_tenant_idx")
+}
+
+enum audit_event_type {
+  DECISION_SUBMITTED
+  DECISION_SIGNED
+  DECISION_ANCHORED
+  DECISION_VERIFIED
+  DECISION_FAILED
+  WORKFLOW_STARTED
+  WORKFLOW_COMPLETED
+  WORKFLOW_FAILED
+}
+
+enum decision_status {
+  PENDING
+  SIGNED
+  ANCHORED
+  VERIFIED
+  FAILED
+}
+
+enum risk_level {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum workflow_run_status {
+  RUNNING
+  SUCCESS
+  FAILED
+}

@@ -1,0 +1,7 @@
+{
+  "auditAnchorContract": "${AUDIT_ANCHOR_CONTRACT}",
+  "callbackBaseUrl": "${API_BASE_URL}",
+  "kmsEndpoint": "https://kms.us-east-1.amazonaws.com",
+  "claudeModel": "claude-haiku-4-5-20251001",
+  "chainSelectorName": "ethereum-testnet-sepolia"
+}

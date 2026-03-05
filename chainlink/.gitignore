@@ -1,0 +1,11 @@
+# secrets (NEVER commit)
+secrets.yaml
+secrets.*.yaml
+
+# workflow build artifacts
+workflows/*/build/
+workflows/*/node_modules/
+
+# env
+.env
+.env.local

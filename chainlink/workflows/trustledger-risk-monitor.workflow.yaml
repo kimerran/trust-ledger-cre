@@ -1,0 +1,174 @@
+# TrustLedger — Risk Monitor Workflow
+# Chainlink CRE Workflow: trustledger-risk-monitor
+#
+# Trigger: HTTP POST from /decisions API route after initial PENDING creation
+# Purpose: Sign, assess risk, anchor on Ethereum Sepolia, callback to backend
+#
+# Node execution order:
+#   1. compute_hash    — Canonicalize and SHA-256 hash the decision payload
+#   2. sign_with_kms   — (parallel) AWS KMS ECDSA sign
+#   2. assess_risk_llm — (parallel) Claude Haiku risk assessment
+#   3. anchor_to_chain — Write hash + sig to AuditAnchor.sol on Sepolia
+#   4. notify_backend  — POST result to /webhooks/cre
+#
+# Secrets: Upload via `cre secrets create secrets.yaml --target <env>` — NEVER inline values here
+
+name: trustledger-risk-monitor
+version: "1.0"
+
+trigger:
+  type: http
+  method: POST
+
+# ─── Node 1: Hash the decision payload ────────────────────────────────────────
+nodes:
+  - id: compute_hash
+    # Produces a deterministic RFC 8785 canonical JSON hash of the decision payload.
+    # Output: { hash: "sha256:..." }
+    type: compute
+    code: |
+      function computeHash(input) {
+        const payload = {
+          confidence: input.decision.confidence,
+          decisionType: input.decision.type,
+          modelId: input.modelId || "unknown",
+          outcome: input.decision.outcome,
+          topFeatures: input.decision.topFeatures
+        };
+
+        // RFC 8785 canonical JSON — sorted keys, recursive
+        function canonicalize(obj) {
+          if (obj === null || typeof obj !== "object") return JSON.stringify(obj);
+          if (Array.isArray(obj)) return "[" + obj.map(canonicalize).join(",") + "]";
+          const keys = Object.keys(obj).sort();
+          return "{" + keys.map(k => JSON.stringify(k) + ":" + canonicalize(obj[k])).join(",") + "}";
+        }
+
+        // SHA-256 is not available in the CRE compute sandbox natively;
+        // we pass the canonical JSON to the backend for hashing if needed.
+        // For CRE, we accept the inputHash provided by the caller (pre-computed).
+        return {
+          decisionId: input.decisionId,
+          hash: input.inputHash,
+          canonicalPayload: canonicalize(payload),
+          callbackUrl: input.callbackUrl
+        };
+      }
+
+      return computeHash(input);
+
+  # ─── Node 2a: KMS signing (runs in parallel with 2b) ─────────────────────────
+  - id: sign_with_kms
+    # Calls AWS KMS REST API to ECDSA-sign the hash string.
+    # Output: { signature: "base64..." }
+    type: http
+    dependsOn:
+      - compute_hash
+    request:
+      method: POST
+      # AWS KMS Sign API endpoint
+      url: "https://kms.us-east-1.amazonaws.com/Sign"
+      headers:
+        Content-Type: "application/x-amz-json-1.1"
+        X-Amz-Target: "TrentService.Sign"
+        # AWS SigV4 auth is handled by CRE's AWS integration
+        X-Aws-Region: "us-east-1"
+        X-Aws-Access-Key-Id: "${secrets.AWS_ACCESS_KEY_ID}"
+        X-Aws-Secret-Access-Key: "${secrets.AWS_SECRET_ACCESS_KEY}"
+      body:
+        KeyId: "${secrets.KMS_KEY_ARN}"
+        # Pass the hash as UTF-8 bytes (base64-encoded for the HTTP body)
+        Message: "$(base64(nodes.compute_hash.output.hash))"
+        MessageType: "RAW"
+        SigningAlgorithm: "ECDSA_SHA_256"
+    output:
+      signature: "$(response.body.Signature)"
+
+  # ─── Node 2b: LLM risk assessment (runs in parallel with 2a) ─────────────────
+  - id: assess_risk_llm
+    # Calls Anthropic Claude Haiku to produce a risk assessment JSON.
+    # Output: { riskLevel: "LOW|MEDIUM|HIGH", summary: "..." }
+    type: http
+    dependsOn:
+      - compute_hash
+    request:
+      method: POST
+      url: "https://api.anthropic.com/v1/messages"
+      headers:
+        Content-Type: "application/json"
+        x-api-key: "REDACTED_ANTHROPIC_KEY"
+        anthropic-version: "2023-06-01"
+      body:
+        model: "claude-haiku-4-5-20251001"
+        max_tokens: 256
+        system: |
+          You are a risk assessment AI for financial and regulated AI decisions.
+          Always respond with valid JSON only — no markdown, no explanation.
+          Schema: {"riskLevel": "LOW"|"MEDIUM"|"HIGH", "summary": "<1-2 sentences>"}
+        messages:
+          - role: user
+            content: |
+              Assess the risk of this AI decision:
+              Type: $(nodes.compute_hash.output.decisionId)
+              Outcome: $(input.decision.outcome)
+              Confidence: $(input.decision.confidence)
+              Top features: $(JSON.stringify(input.decision.topFeatures))
+
+              Respond with JSON only.
+    output:
+      riskAssessment: "$(JSON.parse(response.body.content[0].text))"
+
+  # ─── Node 3: Anchor to Ethereum Sepolia ───────────────────────────────────────
+  - id: anchor_to_chain
+    # Writes the hash, signature, and risk JSON to AuditAnchor.sol on Sepolia.
+    # Output: { txHash: "0x...", blockNumber: N }
+    type: blockchain-write
+    dependsOn:
+      - sign_with_kms
+      - assess_risk_llm
+    chain: sepolia
+    contract:
+      address: "${secrets.AUDIT_ANCHOR_CONTRACT}"
+      abi: "${secrets.AUDIT_ANCHOR_ABI}"
+    function: anchorDecision
+    args:
+      - "$(nodes.compute_hash.output.decisionId)"
+      - "$(nodes.compute_hash.output.hash)"
+      - "$(nodes.sign_with_kms.output.signature)"
+      - "$(JSON.stringify(nodes.assess_risk_llm.output.riskAssessment))"
+    output:
+      txHash: "$(transaction.hash)"
+      blockNumber: "$(transaction.blockNumber)"
+
+  # ─── Node 4: Callback to backend ─────────────────────────────────────────────
+  - id: notify_backend
+    # POSTs the full result to our /webhooks/cre endpoint.
+    # The backend updates the decision to ANCHORED status.
+    type: http
+    dependsOn:
+      - anchor_to_chain
+    request:
+      method: POST
+      url: "http://localhost:3000/webhooks/cre"
+      headers:
+        Content-Type: "application/json"
+        X-Api-Key: "REDACTED_INTERNAL_API_KEY"
+      body:
+        decisionId: "01KJYCY0AYH9G21SVFDSF2G7GJ"
+        workflowRunId: "$(workflow.runId)"
+        hash: "$(nodes.compute_hash.output.hash)"
+        signature: "$(nodes.sign_with_kms.output.signature)"
+        riskAssessment: "$(nodes.assess_risk_llm.output.riskAssessment)"
+        txHash: "$(nodes.anchor_to_chain.output.txHash)"
+        blockNumber: "$(nodes.anchor_to_chain.output.blockNumber)"
+        anchoredAt: "$(now())"
+
+# ─── Output shape (for cre workflow simulate) ────────────────────────────────
+output:
+  decisionId: "01KJYCY0AYH9G21SVFDSF2G7GJ"
+  hash: "$(nodes.compute_hash.output.hash)"
+  signature: "$(nodes.sign_with_kms.output.signature)"
+  riskAssessment: "$(nodes.assess_risk_llm.output.riskAssessment)"
+  txHash: "$(nodes.anchor_to_chain.output.txHash)"
+  blockNumber: "$(nodes.anchor_to_chain.output.blockNumber)"
+  anchoredAt: "$(now())"

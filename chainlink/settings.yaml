@@ -1,0 +1,23 @@
+# TrustLedger — CRE Project Settings
+# This file is read by the CRE CLI to locate project context.
+# Run all `cre workflow *` commands from the repo root or the chainlink/ directory.
+#
+# To use a specific target environment:
+#   cre workflow simulate --target dev-settings
+#   cre workflow deploy   --target production-settings
+
+targets:
+  dev-settings:
+    # Local / simulation — no live chain writes
+    chainId: 11155111
+    nodeURL: ""         # Leave blank for local simulation (no node required)
+    simulate: true
+
+  production-settings:
+    chainId: 11155111
+    nodeURL: "${secrets.CRE_NODE_URL}"
+    simulate: false
+
+workflow:
+  name: trustledger-risk-monitor
+  version: "1.0"

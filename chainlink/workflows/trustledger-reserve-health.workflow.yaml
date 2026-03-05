@@ -1,0 +1,101 @@
+# TrustLedger — Reserve Health Workflow
+# Chainlink CRE Workflow: trustledger-reserve-health
+#
+# Trigger: Cron — every 15 minutes
+# Purpose: Monitor audit trail integrity by sampling recent decisions
+#          and verifying a subset are properly anchored on-chain.
+#          Alerts Slack if any anchor is missing or invalid.
+
+name: trustledger-reserve-health
+version: "1.0"
+
+trigger:
+  type: cron
+  schedule: "*/15 * * * *"  # Every 15 minutes
+
+nodes:
+  # ─── Node 1: Fetch recent decisions from backend ──────────────────────────────
+  - id: fetch_recent_decisions
+    # Queries the backend for decisions created in the last 15 minutes.
+    # Output: { decisions: [...], count: N }
+    type: http
+    request:
+      method: GET
+      url: "${secrets.API_BASE_URL}/decisions?since=$(subtractMinutes(now(), 15))&limit=20"
+      headers:
+        X-Api-Key: "${secrets.INTERNAL_API_KEY}"
+    output:
+      decisions: "$(response.body.data)"
+      count: "$(response.body.data.length)"
+
+  # ─── Node 2: Check anchor health on Ethereum Sepolia ─────────────────────────
+  - id: check_anchor_health
+    # For each ANCHORED decision, verifies the tx exists on Sepolia via Etherscan.
+    # Flags any decisions that are ANCHORED in DB but missing on-chain.
+    # Output: { healthy: [...], unhealthy: [...], skipped: N }
+    type: compute
+    dependsOn:
+      - fetch_recent_decisions
+    code: |
+      async function checkHealth(input) {
+        const decisions = input.nodes.fetch_recent_decisions.output.decisions || [];
+        const anchored = decisions.filter(d => d.status === "ANCHORED" || d.status === "VERIFIED");
+
+        const healthy = [];
+        const unhealthy = [];
+        let skipped = decisions.length - anchored.length;
+
+        for (const decision of anchored) {
+          if (!decision.txHash) {
+            unhealthy.push({ id: decision.id, reason: "Missing txHash despite ANCHORED status" });
+            continue;
+          }
+
+          try {
+            const etherscanUrl = `https://api-sepolia.etherscan.io/api?module=transaction&action=gettxreceiptstatus&txhash=${decision.txHash}&apikey=${secrets.ETHERSCAN_API_KEY}`;
+            const resp = await fetch(etherscanUrl);
+            const json = await resp.json();
+            const txStatus = json.result?.status;
+
+            if (json.status === "1" && txStatus === "1") {
+              healthy.push(decision.id);
+            } else {
+              unhealthy.push({ id: decision.id, txHash: decision.txHash, reason: "Tx not confirmed" });
+            }
+          } catch (err) {
+            unhealthy.push({ id: decision.id, txHash: decision.txHash, reason: err.message });
+          }
+        }
+
+        return { healthy, unhealthy, skipped, checkedAt: new Date().toISOString() };
+      }
+      return checkHealth(input);
+
+  # ─── Node 3: Alert on failure ─────────────────────────────────────────────────
+  - id: alert_on_failure
+    # POSTs a Slack alert if any unhealthy anchors are found.
+    # Only runs when there are unhealthy decisions.
+    type: http
+    dependsOn:
+      - check_anchor_health
+    condition: "$(nodes.check_anchor_health.output.unhealthy.length > 0)"
+    request:
+      method: POST
+      url: "${secrets.SLACK_WEBHOOK_URL}"
+      headers:
+        Content-Type: "application/json"
+      body:
+        text: |
+          *TrustLedger Health Alert* :warning:
+          *$(nodes.check_anchor_health.output.unhealthy.length) unhealthy anchor(s)* detected in the last 15 minutes.
+          Healthy: $(nodes.check_anchor_health.output.healthy.length)
+          Unhealthy: $(JSON.stringify(nodes.check_anchor_health.output.unhealthy))
+          Checked at: $(nodes.check_anchor_health.output.checkedAt)
+
+# ─── Output shape ─────────────────────────────────────────────────────────────
+output:
+  totalChecked: "$(nodes.fetch_recent_decisions.output.count)"
+  healthy: "$(nodes.check_anchor_health.output.healthy.length)"
+  unhealthy: "$(nodes.check_anchor_health.output.unhealthy.length)"
+  skipped: "$(nodes.check_anchor_health.output.skipped)"
+  checkedAt: "$(nodes.check_anchor_health.output.checkedAt)"

@@ -1,0 +1,17 @@
+{
+  "name": "trustledger-risk-monitor",
+  "version": "1.0.0",
+  "description": "TrustLedger risk monitor CRE workflow — hashes AI decisions, signs with AWS KMS, assesses risk with Claude, anchors on Sepolia",
+  "main": "dist/main.js",
+  "private": true,
+  "scripts": {
+    "postinstall": "bunx cre-setup"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@chainlink/cre-sdk": "^1.1.2"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.0"
+  }
+}

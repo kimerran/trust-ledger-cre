@@ -1,0 +1,31 @@
+# ==========================================================================
+# CRE PROJECT SETTINGS FILE
+# ==========================================================================
+# Project-specific settings for CRE CLI targets.
+# Each target configures RPC endpoints for the chains your workflows use.
+#
+# Usage:
+#   cre workflow simulate ./workflows/trustledger-risk-monitor --target dev-settings
+#   cre workflow deploy   ./workflows/trustledger-risk-monitor --target production-settings
+#
+# Secrets: Upload via `cre secrets create secrets.yaml --target <env>`
+
+# ==========================================================================
+dev-settings:
+  rpcs:
+    - chain-name: ethereum-mainnet
+      url: https://ethereum-rpc.publicnode.com
+    - chain-name: ethereum-testnet-sepolia
+      url: "https://eth-sepolia.g.alchemy.com/v2/REDACTED_ALCHEMY_KEY"
+
+# ==========================================================================
+staging-settings:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia
+      url: https://ethereum-sepolia-rpc.publicnode.com
+
+# ==========================================================================
+production-settings:
+  rpcs:
+    - chain-name: ethereum-testnet-sepolia
+      url: "${ALCHEMY_RPC_URL}"
