@@ -19,10 +19,10 @@ export function VerificationLayerCard({ title, pass, details }: VerificationLaye
           <span className="font-semibold text-sm">{title}</span>
         </div>
         <dl className="space-y-1">
-          {Object.entries(details).map(([key, value]) => (
+          {Object.entries(details).filter(([, value]) => value != null).map(([key, value]) => (
             <div key={key} className="flex gap-2 text-xs">
               <dt className="text-muted-foreground min-w-[100px]">{key}:</dt>
-              <dd className="font-mono break-all">{String(value ?? 'N/A')}</dd>
+              <dd className="font-mono break-all">{String(value)}</dd>
             </div>
           ))}
         </dl>

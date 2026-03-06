@@ -49,19 +49,19 @@ export function VerificationLayers({ result }: VerificationLayersProps) {
         <LayerRow
           label="Layer 1 — Hash Integrity"
           pass={layers.hashMatch.pass}
-          detail={`Computed: ${layers.hashMatch.computed} | Stored: ${layers.hashMatch.stored}`}
+          detail={`Computed: ${layers.hashMatch.computed}`}
         />
         <LayerRow
           label="Layer 2 — KMS Signature"
           pass={layers.signatureValid.pass}
-          detail={`Algorithm: ${layers.signatureValid.algorithm} | Key: ${layers.signatureValid.kmsKeyArn}`}
+          detail={`Algorithm: ${layers.signatureValid.algorithm}`}
         />
         <LayerRow
           label="Layer 3 — On-chain Anchor (Sepolia)"
           pass={layers.onchainAnchor.pass}
           detail={
             layers.onchainAnchor.txHash
-              ? `tx: ${layers.onchainAnchor.txHash} | block: ${layers.onchainAnchor.blockNumber}`
+              ? `tx: ${layers.onchainAnchor.txHash}${layers.onchainAnchor.blockNumber != null ? ` | block: ${layers.onchainAnchor.blockNumber}` : ''}`
               : 'Not yet anchored'
           }
         />

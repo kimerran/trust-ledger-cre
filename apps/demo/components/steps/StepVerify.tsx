@@ -69,7 +69,6 @@ export function StepVerify({ decisionId, verification, onVerify, onNext, isLoadi
                 pass={verification.layers.hashMatch.pass}
                 details={{
                   computed: verification.layers.hashMatch.computed,
-                  stored: verification.layers.hashMatch.stored,
                 }}
               />
               <VerificationLayerCard
@@ -77,7 +76,6 @@ export function StepVerify({ decisionId, verification, onVerify, onNext, isLoadi
                 pass={verification.layers.signatureValid.pass}
                 details={{
                   algorithm: verification.layers.signatureValid.algorithm,
-                  kmsKeyArn: verification.layers.signatureValid.kmsKeyArn,
                 }}
               />
               <VerificationLayerCard

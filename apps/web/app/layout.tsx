@@ -34,9 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   <a href="/models" className="text-muted-foreground hover:text-foreground">
                     Models
                   </a>
-                  <a href="/monitoring" className="text-muted-foreground hover:text-foreground">
-                    Monitoring
-                  </a>
+
                 </div>
               </div>
             </nav>
