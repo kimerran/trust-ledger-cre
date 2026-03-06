@@ -1,7 +1,7 @@
 // TrustLedger — HTTP Trigger Handler
 //
 // Receives the AI decision payload, orchestrates signing + risk assessment,
-// then fires the callback so the backend can anchor on-chain.
+// anchors on-chain via CRE's EVMClient, then notifies the backend with the txHash.
 
 import {
   cre,
@@ -11,8 +11,28 @@ import {
   json,
   ok,
   text,
+  getNetwork,
+  prepareReportRequest,
+  TxStatus,
+  bytesToHex,
 } from "@chainlink/cre-sdk";
+import { encodeFunctionData, encodeAbiParameters, toHex } from "viem";
 import type { WorkflowConfig } from "./main";
+
+// ─── ABI for the onReport receiver ──────────────────────────────────────────
+
+const AUDIT_ANCHOR_RECEIVER_ABI = [
+  {
+    type: "function",
+    name: "onReport",
+    inputs: [
+      { name: "metadata", type: "bytes" },
+      { name: "rawReport", type: "bytes" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+] as const;
 
 // ─── Payload types ─────────────────────────────────────────────────────────
 
@@ -26,7 +46,7 @@ type DecisionInput = {
   decisionId: string;
   signature: string;
   modelId: string;
-  inputHash: string;  // pre-computed sha256: hex by the backend
+  inputHash: string; // pre-computed sha256: hex by the backend
   callbackUrl: string;
   decision: {
     type: string;
@@ -49,6 +69,7 @@ type CallbackPayload = {
   hash: string;
   signature: string;
   riskAssessment: RiskAssessment;
+  txHash: string;
   anchoredAt: string;
 };
 
@@ -128,10 +149,10 @@ export function onHttpTrigger(
   }
 
   const input = decodeJson(payload.input) as DecisionInput;
-  runtime.log(`[1/4] Decision ID: ${input.decisionId}`);
-  runtime.log(`[1/4] Model ID:    ${input.modelId}`);
-  runtime.log(`[1/4] Outcome:     ${input.decision.outcome}`);
-  runtime.log(`[1/4] Confidence:  ${input.decision.confidence}`);
+  runtime.log(`[1/5] Decision ID: ${input.decisionId}`);
+  runtime.log(`[1/5] Model ID:    ${input.modelId}`);
+  runtime.log(`[1/5] Outcome:     ${input.decision.outcome}`);
+  runtime.log(`[1/5] Confidence:  ${input.decision.confidence}`);
 
   // ─── Step 1: canonical hash ────────────────────────────────────────────
   const hashablePayload = {
@@ -143,20 +164,22 @@ export function onHttpTrigger(
   };
   const canonical = canonicalize(hashablePayload);
   const hash = input.inputHash;
-  runtime.log(`[1/4] Canonical payload length: ${canonical.length} chars`);
-  runtime.log(`[1/4] Hash: ${hash}`);
+  runtime.log(`[1/5] Canonical payload length: ${canonical.length} chars`);
+  runtime.log(`[1/5] Hash: ${hash}`);
 
   // ─── Step 2: sign with AWS KMS ────────────────────────────────────────
-  runtime.log("[2/4] Signing with AWS KMS...");
+  runtime.log("[2/5] Signing with AWS KMS...");
 
   const secrets = input.secrets;
   const kmsKeyArn = getSecretSafe(runtime, "KMS_KEY_ARN", secrets);
-  const awsKeyId  = getSecretSafe(runtime, "AWS_ACCESS_KEY_ID", secrets);
+  const awsKeyId = getSecretSafe(runtime, "AWS_ACCESS_KEY_ID", secrets);
   const awsSecret = getSecretSafe(runtime, "AWS_SECRET_ACCESS_KEY", secrets);
 
   const isSimulation = !kmsKeyArn || !awsKeyId || !awsSecret;
   if (isSimulation) {
-    runtime.log("[2/4] ⚠ KMS secrets not configured — running in simulation mode");
+    runtime.log(
+      "[2/5] KMS secrets not configured — running in simulation mode"
+    );
   }
 
   let signature = input.signature;
@@ -170,7 +193,13 @@ export function onHttpTrigger(
     });
 
     const kmsResult = runtime.runInNodeMode(
-      (nodeRuntime, body: string, keyId: string, secret: string, endpoint: string) => {
+      (
+        nodeRuntime,
+        body: string,
+        keyId: string,
+        secret: string,
+        endpoint: string
+      ) => {
         const sender = new cre.capabilities.HTTPClient();
         const response = sender
           .sendRequest(nodeRuntime, {
@@ -200,10 +229,10 @@ export function onHttpTrigger(
     signature = String(kmsResult);
   }
 
-  runtime.log(`[2/4] Signature: ${signature.substring(0, 32)}...`);
+  runtime.log(`[2/5] Signature: ${signature.substring(0, 32)}...`);
 
   // ─── Step 3: risk assessment via Claude Haiku ─────────────────────────
-  runtime.log("[3/4] Assessing risk with Claude Haiku...");
+  runtime.log("[3/5] Assessing risk with Claude Haiku...");
 
   const anthropicKey = getSecretSafe(runtime, "ANTHROPIC_API_KEY", secrets);
   const hasAnthropicKey = anthropicKey.length > 0;
@@ -247,7 +276,7 @@ export function onHttpTrigger(
               "x-api-key": apiKey,
               "anthropic-version": "2023-06-01",
             },
-          body: Buffer.from(body).toString("base64"),
+            body: Buffer.from(body).toString("base64"),
           })
           .result();
 
@@ -270,25 +299,98 @@ export function onHttpTrigger(
     try {
       riskAssessment = JSON.parse(String(riskResult)) as RiskAssessment;
     } catch (error) {
-      runtime.log(`llm error: ${error as string}`)
+      runtime.log(`llm error: ${error as string}`);
       runtime.log("[WARN] Failed to parse Claude response");
     }
   }
 
-  runtime.log(`[3/4] Risk level: ${riskAssessment.riskLevel}`);
-  runtime.log(`[3/4] Summary: ${riskAssessment.summary}`);
+  runtime.log(`[3/5] Risk level: ${riskAssessment.riskLevel}`);
+  runtime.log(`[3/5] Summary: ${riskAssessment.summary}`);
 
-  // ─── Step 4: callback to backend ─────────────────────────────────────
-  runtime.log("[4/4] Sending callback to backend...");
+  // ─── Step 4: anchor on-chain via EVMClient ─────────────────────────────
+  runtime.log("[4/5] Anchoring on-chain via CRE EVMClient...");
 
-  const internalKey = getSecretSafe(runtime, "INTERNAL_API_KEY", secrets, "dev-internal");
+  const network = getNetwork({
+    chainFamily: "evm",
+    chainSelectorName: runtime.config.chainSelectorName,
+    isTestnet: true,
+  });
+
+  if (!network) {
+    throw new Error(
+      `Network not found for chain: ${runtime.config.chainSelectorName}`
+    );
+  }
+
+  // Strip "sha256:" prefix and convert to bytes32
+  const hashHex = ("0x" + hash.replace(/^sha256:/, "")) as `0x${string}`;
+  const riskJson = JSON.stringify(riskAssessment);
+
+  // ABI-encode the inner data that onReport will decode
+  const innerData = encodeAbiParameters(
+    [
+      { type: "string" },
+      { type: "bytes32" },
+      { type: "string" },
+      { type: "string" },
+    ],
+    [input.decisionId, hashHex, signature, riskJson]
+  );
+
+  // Encode the full onReport(metadata, rawReport) call
+  const writeCallData = encodeFunctionData({
+    abi: AUDIT_ANCHOR_RECEIVER_ABI,
+    functionName: "onReport",
+    args: [toHex("0x"), innerData],
+  });
+
+  const evmClient = new cre.capabilities.EVMClient(
+    network.chainSelector.selector
+  );
+
+  const report = runtime.report(prepareReportRequest(writeCallData)).result();
+
+  const writeResp = evmClient
+    .writeReport(runtime, {
+      receiver: runtime.config.auditAnchorContract,
+      report,
+    })
+    .result();
+
+  runtime.log(writeResp.txStatus.toString());
+
+  if (writeResp.txStatus !== TxStatus.SUCCESS) {
+    runtime.log(
+      `[ERROR] On-chain anchor failed: ${writeResp.errorMessage || writeResp.txStatus}`
+    );
+    throw new Error(
+      `On-chain anchor failed: ${writeResp.errorMessage || writeResp.txStatus}`
+    );
+  }
+
+  const txHash = writeResp.txHash
+    ? bytesToHex(writeResp.txHash)
+    : "0x0000000000000000000000000000000000000000000000000000000000000000";
+
+  runtime.log(`[4/5] Anchored on-chain — txHash: ${txHash}`);
+
+  // ─── Step 5: notify backend with txHash ────────────────────────────────
+  runtime.log("[5/5] Notifying backend...");
+
+  const internalKey = getSecretSafe(
+    runtime,
+    "INTERNAL_API_KEY",
+    secrets,
+    "dev-internal"
+  );
 
   const callbackPayload: CallbackPayload = {
     decisionId: input.decisionId,
-    workflowRunId: `cre-sim-${Date.now()}`,
+    workflowRunId: `cre-${Date.now()}`,
     hash,
     signature,
     riskAssessment,
+    txHash,
     anchoredAt: new Date().toISOString(),
   };
 
@@ -311,9 +413,11 @@ export function onHttpTrigger(
         .result();
 
       if (!ok(response)) {
-        runtime.log(`[WARN] Callback to ${url} failed (${response.statusCode})`);
+        runtime.log(
+          `[WARN] Callback to ${url} failed (${response.statusCode})`
+        );
       } else {
-        runtime.log(`[4/4] ✓ Callback delivered (${response.statusCode})`);
+        runtime.log(`[5/5] Callback delivered (${response.statusCode})`);
       }
       return response.statusCode;
     },

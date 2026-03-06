@@ -5,7 +5,6 @@ import pino from 'pino';
 import { db } from '../../db/index';
 import { decisions, auditEvents, workflowRuns } from '../../db/schema';
 import { internalAuthGuard } from '../middleware/authGuard';
-import { anchorDecisionOnChain } from '../services/anchorService';
 import { broadcastEvent } from './events';
 
 const router = Router();
@@ -20,10 +19,13 @@ const creWebhookSchema = z.object({
     riskLevel: z.enum(['LOW', 'MEDIUM', 'HIGH']),
     summary: z.string(),
   }),
+  txHash: z.string().startsWith('0x'),
   anchoredAt: z.string(),
 });
 
 // ─── POST /webhooks/cre ───────────────────────────────────────────────────────
+// The CRE DON has already anchored the decision on-chain. This callback just
+// updates the database with the txHash and risk assessment results.
 
 router.post('/cre', internalAuthGuard, async (req, res) => {
   const parsed = creWebhookSchema.safeParse(req.body);
@@ -36,7 +38,7 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
     return;
   }
 
-  const { decisionId, workflowRunId, hash, signature, riskAssessment, anchoredAt } =
+  const { decisionId, workflowRunId, hash, signature, riskAssessment, txHash, anchoredAt } =
     parsed.data;
 
   try {
@@ -58,50 +60,7 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
 
     const tenantId = decision.tenantId;
 
-    // Anchor the decision on-chain (Sepolia)
-    const riskJson = JSON.stringify(riskAssessment);
-    let txHash: string;
-    let blockNumber: number;
-
-    try {
-      const anchorResult = await anchorDecisionOnChain({
-        decisionId,
-        inputHash: hash,
-        signature,
-        riskJson,
-      });
-      txHash = anchorResult.txHash;
-      blockNumber = anchorResult.blockNumber;
-    } catch (anchorErr) {
-      log.error({ err: anchorErr, decisionId }, 'On-chain anchoring failed');
-
-      await db
-        .update(decisions)
-        .set({
-          riskLevel: riskAssessment.riskLevel,
-          riskSummary: riskAssessment.summary,
-          status: 'FAILED',
-          errorMessage: 'On-chain anchoring failed',
-          updatedAt: new Date(),
-        })
-        .where(eq(decisions.id, decisionId));
-
-      await db.insert(auditEvents).values({
-        tenantId,
-        decisionId,
-        eventType: 'DECISION_FAILED',
-        payload: { decisionId, reason: 'On-chain anchoring failed' },
-      });
-      broadcastEvent(tenantId, 'DECISION_FAILED', { decisionId, reason: 'On-chain anchoring failed' });
-
-      res.status(500).json({
-        success: false,
-        error: { code: 'ANCHOR_FAILED', message: 'On-chain anchoring failed' },
-      });
-      return;
-    }
-
-    // Update decision to ANCHORED
+    // Update decision to ANCHORED (on-chain write already done by CRE DON)
     await db
       .update(decisions)
       .set({
@@ -109,7 +68,6 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
         riskLevel: riskAssessment.riskLevel,
         riskSummary: riskAssessment.summary,
         txHash,
-        blockNumber,
         status: 'ANCHORED',
         updatedAt: new Date(),
       })
@@ -120,16 +78,16 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
       tenantId,
       decisionId,
       eventType: 'DECISION_ANCHORED',
-      payload: { decisionId, txHash, blockNumber, anchoredAt },
+      payload: { decisionId, txHash, anchoredAt },
     });
-    broadcastEvent(tenantId, 'DECISION_ANCHORED', { decisionId, txHash, blockNumber });
+    broadcastEvent(tenantId, 'DECISION_ANCHORED', { decisionId, txHash });
 
     // Update workflow run
     await db
       .update(workflowRuns)
       .set({
         status: 'SUCCESS',
-        output: { txHash, blockNumber, riskAssessment },
+        output: { txHash, riskAssessment },
         completedAt: new Date(),
         durationMs: Math.round(
           (new Date(anchoredAt).getTime() - decision.createdAt.getTime()),
@@ -143,11 +101,11 @@ router.post('/cre', internalAuthGuard, async (req, res) => {
       );
 
     log.info(
-      { decisionId, txHash, blockNumber, riskLevel: riskAssessment.riskLevel },
-      'Decision anchored via CRE callback',
+      { decisionId, txHash, riskLevel: riskAssessment.riskLevel },
+      'Decision anchored by CRE DON — DB updated',
     );
 
-    res.json({ success: true, data: { decisionId, status: 'ANCHORED', txHash, blockNumber } });
+    res.json({ success: true, data: { decisionId, status: 'ANCHORED', txHash } });
   } catch (err) {
     log.error({ err, decisionId }, 'CRE webhook processing failed');
     res.status(500).json({

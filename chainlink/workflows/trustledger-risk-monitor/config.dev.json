@@ -1,5 +1,5 @@
 {
-  "auditAnchorContract": "0x2469DaAF10a39ab00a4A8534CA99C6783b29d9b7",
+  "auditAnchorContract": "0xD3df71047e29d312A7A9af121CCc0eEB97Ebe7A3",
   "callbackBaseUrl": "http://localhost:3001",
   "kmsEndpoint": "https://kms.us-east-1.amazonaws.com",
   "claudeModel": "claude-haiku-4-5",

@@ -1,5 +1,7 @@
 {
-  "/api/decisions/[id]/verify/route": "app/api/decisions/[id]/verify/route.js",
+  "/_not-found/page": "app/_not-found/page.js",
   "/page": "app/page.js",
-  "/api/decisions/[id]/proof/route": "app/api/decisions/[id]/proof/route.js"
+  "/api/token/route": "app/api/token/route.js",
+  "/api/decisions/[id]/verify/route": "app/api/decisions/[id]/verify/route.js",
+  "/api/decisions/route": "app/api/decisions/route.js"
 }
