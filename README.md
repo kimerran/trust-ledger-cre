@@ -1,10 +1,6 @@
 # TrustLedger
 
 > Cryptographic audit trail for AI decisions — powered by Chainlink CRE, AWS KMS, and Ethereum Sepolia.
-
-**Hackathon:** Chainlink Convergence — Risk & Compliance Track
-**Deadline:** March 8, 2026
-
 ---
 
 ## Architecture
@@ -17,10 +13,10 @@ User/AI System → POST /decisions (Express API)
                ├── Sign with AWS KMS (ECDSA_SHA_256) ──┐
                └── LLM risk assess (Claude Haiku)  ──→ Merge
                                                         ↓
-                                             Callback → /webhooks/cre
-                                                        ↓
                                               Anchor to Ethereum Sepolia
-                                              (AuditAnchor.sol via ethers.js)
+                                              (AuditAnchor.sol via EVMClient.writeReport)
+                                                        ↓
+                                             Callback → /webhooks/cre (txHash)
                                                         ↓
                                                  Next.js Dashboard
                                                  + Public Proof Page
@@ -114,7 +110,7 @@ All Chainlink-related files live under `chainlink/`:
 | `chainlink/workflows/trustledger-risk-monitor/` | **TypeScript CRE workflow** — the runnable implementation |
 | `chainlink/workflows/trustledger-risk-monitor/workflow.yaml` | CRE workflow settings (name, artifact paths, secrets path) |
 | `chainlink/workflows/trustledger-risk-monitor/main.ts` | Workflow entry point |
-| `chainlink/workflows/trustledger-risk-monitor/httpCallback.ts` | HTTP trigger handler (all 4 steps) |
+| `chainlink/workflows/trustledger-risk-monitor/httpCallback.ts` | HTTP trigger handler (all 5 steps) |
 | `chainlink/workflows/trustledger-risk-monitor/config.dev.json` | Dev config (contract address, callback URL, Claude model) |
 
 ### Workflow: `trustledger-risk-monitor`
@@ -126,11 +122,12 @@ All Chainlink-related files live under `chainlink/`:
 1. Parse and canonicalize the decision payload (RFC 8785)
 2. Sign hash with AWS KMS — `HTTPClient` → `ECDSA_SHA_256`
 3. Assess risk with Claude Haiku — `HTTPClient` → Anthropic API
-4. POST result to `/webhooks/cre` callback (backend anchors on-chain via `anchorService.ts`)
+4. Anchor on-chain via `EVMClient.writeReport` → `AuditAnchor.sol` (IReceiver) on Sepolia
+5. POST txHash to `/webhooks/cre` callback (backend updates DB status)
 
 ### Simulating locally
 
-The CRE WASM runtime does not support `runtime.getSecret()` during simulation. Instead, pass secrets in the HTTP payload under a `secrets` key:
+The CRE WASM runtime does not support `runtime.getSecret()` during simulation. Instead, pass secrets in the HTTP payload under a `secrets` key. Use `--broadcast` to actually submit EVM write transactions to the blockchain:
 
 ```bash
 # 1. Install workflow dependencies (first time only)
@@ -139,7 +136,7 @@ cd chainlink/workflows/trustledger-risk-monitor && bun install && cd ../..
 # 2. Run simulation from chainlink/ directory
 cd chainlink
 ~/.cre/bin/cre workflow simulate ./workflows/trustledger-risk-monitor \
-  -R . --target dev-settings --trigger-index 0 --non-interactive \
+  -R . --target dev-settings --trigger-index 0 --non-interactive --broadcast \
   --http-payload '{
     "decisionId": "test-123",
     "signature": "test-sig",
@@ -175,7 +172,7 @@ cd chainlink
 
 | Contract | Address (Sepolia) | Purpose |
 |---|---|---|
-| `AuditAnchor.sol` | `$AUDIT_ANCHOR_CONTRACT` | Immutable storage of decision hashes + signatures |
+| `AuditAnchor.sol` | `$AUDIT_ANCHOR_CONTRACT` | Immutable storage of decision hashes + signatures. Implements `IReceiver` for CRE DON writes. |
 | `RetentionPolicy.sol` | `$RETENTION_POLICY_CONTRACT` | On-chain retention rules per tenant |
 
 ```bash
