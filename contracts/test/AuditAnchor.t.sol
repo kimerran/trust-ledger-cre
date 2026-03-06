@@ -177,6 +177,54 @@ contract AuditAnchorTest is Test {
         assertEq(anchor.getTotalAnchored(), 10);
     }
 
+    // ─── onReport (IReceiver / CRE DON write) ──────────────────────────────────
+
+    function test_OnReport_AnchorsDecision() public {
+        bytes memory rawReport = abi.encode(DECISION_ID, HASH, SIGNATURE, RISK_JSON);
+
+        vm.prank(ANCHORER);
+        anchor.onReport("", rawReport);
+
+        AuditAnchor.Anchor memory a = anchor.getAnchor(DECISION_ID);
+        assertEq(a.hash, HASH);
+        assertEq(a.signature, SIGNATURE);
+        assertEq(a.riskJson, RISK_JSON);
+        assertEq(a.anchorer, ANCHORER);
+        assertGt(a.timestamp, 0);
+    }
+
+    function test_OnReport_RevertsOnDuplicate() public {
+        bytes memory rawReport = abi.encode(DECISION_ID, HASH, SIGNATURE, RISK_JSON);
+
+        anchor.onReport("", rawReport);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(AuditAnchor.AuditAnchor__AlreadyAnchored.selector, DECISION_ID)
+        );
+        anchor.onReport("", rawReport);
+    }
+
+    function test_OnReport_EmitsEvent() public {
+        bytes memory rawReport = abi.encode(DECISION_ID, HASH, SIGNATURE, RISK_JSON);
+
+        vm.expectEmit(false, true, false, true);
+        emit DecisionAnchored(DECISION_ID, HASH, block.timestamp);
+
+        anchor.onReport("", rawReport);
+    }
+
+    // ─── supportsInterface ───────────────────────────────────────────────────
+
+    function test_SupportsInterface_IReceiver() public view {
+        // IReceiver interfaceId = onReport selector ^ supportsInterface selector
+        bytes4 iReceiverId = bytes4(keccak256("onReport(bytes,bytes)")) ^ bytes4(keccak256("supportsInterface(bytes4)"));
+        assertTrue(anchor.supportsInterface(iReceiverId));
+    }
+
+    function test_SupportsInterface_ReturnsFalseForUnknown() public view {
+        assertFalse(anchor.supportsInterface(bytes4(0xdeadbeef)));
+    }
+
     // ─── Fuzz tests ───────────────────────────────────────────────────────────
 
     function testFuzz_AnchorDecision_UniqueIds(string calldata id1, string calldata id2) public {
