@@ -2,9 +2,6 @@
 
 > Cryptographic audit trail for AI decisions — powered by Chainlink CRE, AWS KMS, and Ethereum Sepolia.
 
-**Hackathon:** Chainlink Convergence — Risk & Compliance Track
-**Deadline:** March 8, 2026
-
 ---
 
 ## Architecture
