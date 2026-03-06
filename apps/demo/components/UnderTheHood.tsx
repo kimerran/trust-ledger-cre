@@ -4,10 +4,11 @@ import { useState } from 'react';
 
 interface UnderTheHoodProps {
   children: React.ReactNode;
+  defaultOpen?: boolean;
 }
 
-export function UnderTheHood({ children }: UnderTheHoodProps) {
-  const [open, setOpen] = useState(false);
+export function UnderTheHood({ children, defaultOpen = false }: UnderTheHoodProps) {
+  const [open, setOpen] = useState(defaultOpen);
 
   return (
     <div className="mt-4 border rounded-md">

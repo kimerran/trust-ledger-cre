@@ -9,7 +9,7 @@ import { tenantGuard } from '../middleware/tenantGuard';
 import { hashDecision } from '@trustledger/shared';
 import { signWithKMS } from '../services/kmsService';
 import { verifyDecision } from '../services/verificationService';
-import { triggerRiskMonitorWorkflow } from '../services/creService';
+
 import { broadcastEvent } from './events';
 
 const router = Router();
@@ -161,17 +161,6 @@ router.post('/', tenantGuard, async (req, res) => {
       input: payload,
     });
 
-    // 4. Trigger CRE workflow (async — don't await response)
-    const apiBase = process.env.API_BASE_URL ?? `http://localhost:${process.env.PORT ?? 3001}`;
-    triggerRiskMonitorWorkflow({
-      decisionId,
-      decision: { type: decisionType, outcome, confidence, topFeatures },
-      inputHash,
-      callbackUrl: `${apiBase}/webhooks/cre`,
-    }).catch((err) => {
-      log.error({ err, decisionId }, 'CRE trigger failed');
-    });
-
     log.info({ decisionId, tenantId, status: 'SIGNED' }, 'Decision submitted and signed');
 
     const [decision] = await db
@@ -314,18 +303,23 @@ router.get('/:id/proof', tenantGuard, async (req, res) => {
       return;
     }
 
-    const proof = {
+    const proof: Record<string, unknown> = {
       decisionId: decision.id,
       tenantId: decision.tenantId,
       inputHash: decision.inputHash,
       signature: decision.signature,
       riskLevel: decision.riskLevel,
       txHash: decision.txHash,
-      blockNumber: decision.blockNumber,
+      network: 'Ethereum Sepolia Testnet',
       status: decision.status,
       createdAt: decision.createdAt,
       proofGeneratedAt: new Date().toISOString(),
     };
+
+    // Only include blockNumber if it has a value
+    if (decision.blockNumber != null) {
+      proof.blockNumber = decision.blockNumber;
+    }
 
     res
       .setHeader('Content-Disposition', `attachment; filename="proof-${id}.json"`)

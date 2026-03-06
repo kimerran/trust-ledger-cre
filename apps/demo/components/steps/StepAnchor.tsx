@@ -3,90 +3,92 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { CodeBlock } from '@/components/CodeBlock';
-import { StatusBadge } from '@/components/StatusBadge';
 import { UnderTheHood } from '@/components/UnderTheHood';
-import type { Decision } from '@trustledger/shared';
 
 interface StepAnchorProps {
-  decision: Decision;
-  anchoredDecision: Decision | null;
-  simulatedPayload: Record<string, unknown> | null;
-  onAnchor: () => void;
+  decisionId: string;
+  inputHash: string;
+  signature: string;
+  decisionPayload: string;
   onNext: () => void;
-  isLoading: boolean;
 }
 
-export function StepAnchor({
-  decision,
-  anchoredDecision,
-  simulatedPayload,
-  onAnchor,
-  onNext,
-  isLoading,
-}: StepAnchorProps) {
-  const current = anchoredDecision ?? decision;
+export function StepAnchor({ decisionId, inputHash, signature, decisionPayload, onNext }: StepAnchorProps) {
+  // Parse the submitted payload to extract decision fields
+  let decision = { type: 'loan_approval', outcome: 'APPROVED', confidence: 0.92, topFeatures: [] as Array<{ name: string; value: number; contribution: number }> };
+  try {
+    const parsed = JSON.parse(decisionPayload);
+    decision = {
+      type: parsed.decisionType ?? decision.type,
+      outcome: parsed.outcome ?? decision.outcome,
+      confidence: parsed.confidence ?? decision.confidence,
+      topFeatures: parsed.topFeatures ?? decision.topFeatures,
+    };
+  } catch { /* use defaults */ }
+
+  const payloadObj = {
+    decisionId,
+    signature,
+    modelId: '00000000-0000-0000-0000-000000000001',
+    inputHash,
+    callbackUrl: 'http://localhost:3001/webhooks/cre',
+    decision,
+    secrets: {
+      ANTHROPIC_API_KEY: '__ANTHROPIC_API_KEY__',
+      INTERNAL_API_KEY: '__INTERNAL_API_KEY__',
+    },
+  };
+
+  // Build JSON with shell variable references (unquoted $VAR for shell expansion)
+  const httpPayload = JSON.stringify(payloadObj, null, 4)
+    .replace('"__ANTHROPIC_API_KEY__"', '"$ANTHROPIC_API_KEY"')
+    .replace('"__INTERNAL_API_KEY__"', '"$INTERNAL_API_KEY"');
+
+  // Use double-quoted --http-payload so shell expands $ANTHROPIC_API_KEY and $INTERNAL_API_KEY
+  // Escape inner double quotes with backslash
+  const escapedPayload = httpPayload.replace(/"/g, '\\"');
+
+  const sampleCommand = `cre workflow simulate ./chainlink/workflows/trustledger-risk-monitor \\
+  --broadcast \\
+  -R . \\
+  --target dev-settings \\
+  --trigger-index 0 \\
+  --non-interactive \\
+  --http-payload "${escapedPayload}"`;
+
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Step 2: On-Chain Anchor</CardTitle>
+        <CardTitle>Step 2: Blockchain Anchor</CardTitle>
         <CardDescription>
-          In production, Chainlink CRE anchors the decision hash on-chain and calls back.
-          Here we simulate the CRE webhook to move the decision to ANCHORED status.
+          The Chainlink CRE workflow hashes the decision, signs it with KMS, runs an LLM risk
+          assessment, and anchors the proof on-chain via{' '}
+          <code className="text-xs bg-muted px-1 rounded">EVMClient.writeReport</code> to the
+          AuditAnchor contract on Sepolia.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="p-4 rounded-md bg-muted/50 text-sm space-y-2">
-          <p className="font-medium">What happens in production:</p>
+        <div className="p-4 rounded-md bg-muted/50 text-sm space-y-3">
+          <p className="font-medium">CRE Workflow Pipeline:</p>
           <ol className="list-decimal list-inside space-y-1 text-muted-foreground">
-            <li>CRE workflow reads the decision hash + signature</li>
-            <li>Risk assessment is computed (model confidence, anomaly detection)</li>
-            <li>Hash is written to the AuditAnchor smart contract on Sepolia</li>
-            <li>CRE calls back <code className="text-xs bg-muted px-1 rounded">POST /webhooks/cre</code> with tx details</li>
+            <li>Canonicalize payload (RFC 8785) and verify hash</li>
+            <li>Sign with AWS KMS (<code className="text-xs">ECDSA_SHA_256</code>)</li>
+            <li>Risk assessment via Claude Haiku</li>
+            <li>Anchor on-chain via <code className="text-xs">EVMClient.writeReport</code></li>
+            <li>Callback to backend with txHash</li>
           </ol>
         </div>
 
-        {!anchoredDecision ? (
-          <Button onClick={onAnchor} disabled={isLoading}>
-            {isLoading ? 'Anchoring...' : 'Simulate CRE Anchor'}
-          </Button>
-        ) : (
-          <>
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Status:</span>
-              <StatusBadge status={current.status} />
-            </div>
+        <UnderTheHood defaultOpen>
+          <CodeBlock title="CRE Simulate Command" language="bash" copyButton>
+            {sampleCommand}
+          </CodeBlock>
+        </UnderTheHood>
 
-            <div className="grid grid-cols-1 gap-3">
-              <div>
-                <span className="text-xs text-muted-foreground">Risk Level</span>
-                <p className="font-mono text-sm">{current.riskLevel ?? 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-muted-foreground">Risk Summary</span>
-                <p className="text-sm">{current.riskSummary ?? 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-muted-foreground">Transaction Hash</span>
-                <p className="font-mono text-xs break-all">{current.txHash ?? 'N/A'}</p>
-              </div>
-              <div>
-                <span className="text-xs text-muted-foreground">Block Number</span>
-                <p className="font-mono text-sm">{current.blockNumber ?? 'N/A'}</p>
-              </div>
-            </div>
-
-            <UnderTheHood>
-              <CodeBlock title="Simulated CRE Webhook Payload">
-                {JSON.stringify(simulatedPayload, null, 2)}
-              </CodeBlock>
-            </UnderTheHood>
-
-            <div className="flex justify-end pt-2">
-              <Button onClick={onNext}>Next: Verify</Button>
-            </div>
-          </>
-        )}
+        <div className="flex justify-end pt-2">
+          <Button onClick={onNext}>Next: Verify</Button>
+        </div>
       </CardContent>
     </Card>
   );

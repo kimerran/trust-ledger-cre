@@ -129,11 +129,26 @@ export default async function DecisionDrilldownPage({
       </div>
 
       {decision.riskSummary && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">LLM Risk Assessment</CardTitle>
+        <Card className="border-primary/30 bg-primary/[0.03]">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">✦</span>
+              <CardTitle className="text-base">LLM Risk Assessment</CardTitle>
+            </div>
+            <span className="text-[10px] text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+              Powered by Haiku LLM
+            </span>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-2">
+            {decision.riskLevel && (
+              <Badge variant={
+                decision.riskLevel === 'LOW' ? 'success'
+                  : decision.riskLevel === 'HIGH' ? 'destructive'
+                  : 'warning'
+              }>
+                {decision.riskLevel} RISK
+              </Badge>
+            )}
             <p className="text-sm">{decision.riskSummary}</p>
           </CardContent>
         </Card>
@@ -151,7 +166,7 @@ export default async function DecisionDrilldownPage({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Top Features</CardTitle>
+          <CardTitle className="text-base">Parameters</CardTitle>
         </CardHeader>
         <CardContent>
           <pre className="text-xs overflow-auto">
