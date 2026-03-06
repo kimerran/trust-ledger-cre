@@ -112,6 +112,7 @@ All Chainlink-related files live under `chainlink/`:
 | `chainlink/workflows/trustledger-risk-monitor/main.ts` | Workflow entry point |
 | `chainlink/workflows/trustledger-risk-monitor/httpCallback.ts` | HTTP trigger handler (all 5 steps) |
 | `chainlink/workflows/trustledger-risk-monitor/config.dev.json` | Dev config (contract address, callback URL, Claude model) |
+| `chainlink/workflows/trustledger-risk-monitor/config.production.json` | Production config |
 
 ### Workflow: `trustledger-risk-monitor`
 
@@ -239,7 +240,7 @@ trust-ledger-chainlink/
 ├── packages/
 │   └── shared/       Shared types + hashDecision utility
 ├── contracts/        Foundry — AuditAnchor.sol, RetentionPolicy.sol
-├── chainlink/        CRE project — workflows, config, secrets
+├── chainlink/        CRE project — single TypeScript workflow, config, secrets
 ├── docker-compose.yml
 └── .env.example
 ```
